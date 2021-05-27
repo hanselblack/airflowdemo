@@ -7,13 +7,17 @@ from airflow.operators.email import EmailOperator
 from datetime import datetime, timedelta
 from pandas import json_normalize
 import json
+import time
+import logging
+
 
 default_args = {
+    "email": "hansel@dsaid.gov.sg",
     "owner": "airflow",
     "start_date": datetime(2021, 1, 1),
 	#‘end_date’: datetime(2021, 12 , 30),
     "retries": 1,
-    "retry_delay": timedelta(minutes=5)
+    "retry_delay": timedelta(seconds=10)
 }
 
 def _processing_user(ti):
@@ -29,7 +33,15 @@ def _processing_user(ti):
         "password": user["login"]["password"],
         "email": user["email"]
     })
-    processed_user.to_csv('/tmp/processed_user.csv', index=None, header=False)
+    processed_user.to_csv("/tmp/processed_user.csv", index=None, header=False)
+
+def _sure_fail():
+    raise ValueError('File not parsed completely/correctly')
+
+def _sleep_processing():
+    logging.info("Sleeping for 15s")
+    time.sleep(15)
+    print("Done!")
 
 with DAG("user_processing", 
         description="Get a random user from an API and save it as CSV",
@@ -63,5 +75,20 @@ with DAG("user_processing",
         subject="Pipeline Done User Processed",
         html_content="<h1>Done! Your User Processing Pipeline run has completed!</h1>"
     )
+    
+    sure_fail = PythonOperator(task_id='sure_fail',
+        python_callable=_sure_fail,
+        email_on_failure=True
+    )
 
-    is_api_available >> extracting_user >> processing_user >> send_email_notification
+    sleep_processing = PythonOperator(task_id='sleep_processing',
+        python_callable=_sleep_processing,
+        email_on_failure=True
+    )
+    
+    #cis_api_available >> extracting_user >> processing_user >> send_email_notification
+    
+    sleep_processing >> extracting_user >> processing_user >> send_email_notification
+    is_api_available >> sure_fail
+    is_api_available >> extracting_user
+
